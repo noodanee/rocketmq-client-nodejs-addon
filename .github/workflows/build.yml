@@ -31,7 +31,7 @@ jobs:
 
       - name: Install Node.js
         run: |
-          curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
           yum install -y nodejs
 
       - name: Setup Zig
@@ -53,13 +53,45 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
+      - name: Cache npm dependencies
+        id: cache-npm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+
+      - name: Cache RocketMQ native deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/rocketmq/bin
+            deps/rocketmq/libs/signature/lib
+            deps/rocketmq/tmp_down_dir
+          key: rocketmq-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('deps/rocketmq/build.sh', 'deps/rocketmq/CMakeLists.txt') }}
+          restore-keys: |
+            rocketmq-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+
+      - name: Cache addon build
+        id: cache-addon
+        uses: actions/cache@v4
+        with:
+          path: build/rocketmq.node
+          key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
+          restore-keys: |
+            addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+
       - name: Install npm dependencies
+        if: steps.cache-npm.outputs.cache-hit != 'true'
         run: npm install --no-audit --prefer-offline
 
       - name: Build RocketMQ native deps
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: ./deps/rocketmq/build.sh
 
       - name: Build addon
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: npx cmake-js compile --CDCMAKE_BUILD_TYPE=Release
 
       - name: Package artifact
@@ -89,7 +121,7 @@ jobs:
 
       - name: Install Node.js
         run: |
-          curl -fsSL https://rpm.nodesource.com/setup_18.x | bash -
+          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
           yum install -y nodejs
 
       - name: Setup Zig
@@ -111,13 +143,45 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
+      - name: Cache npm dependencies
+        id: cache-npm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+
+      - name: Cache RocketMQ native deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/rocketmq/bin
+            deps/rocketmq/libs/signature/lib
+            deps/rocketmq/tmp_down_dir
+          key: rocketmq-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('deps/rocketmq/build.sh', 'deps/rocketmq/CMakeLists.txt') }}
+          restore-keys: |
+            rocketmq-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+
+      - name: Cache addon build
+        id: cache-addon
+        uses: actions/cache@v4
+        with:
+          path: build/rocketmq.node
+          key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
+          restore-keys: |
+            addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+
       - name: Install npm dependencies
+        if: steps.cache-npm.outputs.cache-hit != 'true'
         run: npm install --no-audit --prefer-offline
 
       - name: Build RocketMQ native deps
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: ./deps/rocketmq/build.sh
 
       - name: Build addon
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: npx cmake-js compile --CDCMAKE_BUILD_TYPE=Release
 
       - name: Package artifact
@@ -135,7 +199,7 @@ jobs:
   linux-musl-x64:
     runs-on: ubuntu-24.04
     container:
-      image: alpine:latest
+      image: node:20-alpine
     env:
       ZIG_TARGET: x86_64-linux-musl
     steps:
@@ -143,7 +207,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system dependencies
-        run: apk add --no-cache nodejs npm bash build-base cmake ninja python3 curl unzip git autoconf automake libtool pkgconfig
+        run: apk add --no-cache bash build-base cmake ninja python3 curl unzip git autoconf automake libtool pkgconfig
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -164,13 +228,45 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
+      - name: Cache npm dependencies
+        id: cache-npm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Cache RocketMQ native deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/rocketmq/bin
+            deps/rocketmq/libs/signature/lib
+            deps/rocketmq/tmp_down_dir
+          key: rocketmq-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('deps/rocketmq/build.sh', 'deps/rocketmq/CMakeLists.txt') }}
+          restore-keys: |
+            rocketmq-${{ runner.os }}-
+
+      - name: Cache addon build
+        id: cache-addon
+        uses: actions/cache@v4
+        with:
+          path: build/rocketmq.node
+          key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
+          restore-keys: |
+            addon-${{ runner.os }}-
+
       - name: Install npm dependencies
+        if: steps.cache-npm.outputs.cache-hit != 'true'
         run: npm install --no-audit --prefer-offline
 
       - name: Build RocketMQ native deps
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: ./deps/rocketmq/build.sh
 
       - name: Build addon
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: npx cmake-js compile --CDCMAKE_BUILD_TYPE=Release
 
       - name: Package artifact
@@ -196,7 +292,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build python3 curl unzip git autoconf automake libtool pkg-config
@@ -220,13 +316,45 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
+      - name: Cache npm dependencies
+        id: cache-npm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Cache RocketMQ native deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/rocketmq/bin
+            deps/rocketmq/libs/signature/lib
+            deps/rocketmq/tmp_down_dir
+          key: rocketmq-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('deps/rocketmq/build.sh', 'deps/rocketmq/CMakeLists.txt') }}
+          restore-keys: |
+            rocketmq-${{ runner.os }}-
+
+      - name: Cache addon build
+        id: cache-addon
+        uses: actions/cache@v4
+        with:
+          path: build/rocketmq.node
+          key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
+          restore-keys: |
+            addon-${{ runner.os }}-
+
       - name: Install npm dependencies
+        if: steps.cache-npm.outputs.cache-hit != 'true'
         run: npm install --no-audit --prefer-offline
 
       - name: Build RocketMQ native deps
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: ./deps/rocketmq/build.sh
 
       - name: Build addon
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: npx cmake-js compile --CDCMAKE_BUILD_TYPE=Release
 
       - name: Package artifact
@@ -250,18 +378,50 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Install build tools
         run: brew install cmake ninja xz autoconf automake libtool pkg-config
 
+      - name: Cache npm dependencies
+        id: cache-npm
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Cache RocketMQ native deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/rocketmq/bin
+            deps/rocketmq/libs/signature/lib
+            deps/rocketmq/tmp_down_dir
+          key: rocketmq-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('deps/rocketmq/build.sh', 'deps/rocketmq/CMakeLists.txt') }}
+          restore-keys: |
+            rocketmq-${{ runner.os }}-
+
+      - name: Cache addon build
+        id: cache-addon
+        uses: actions/cache@v4
+        with:
+          path: build/rocketmq.node
+          key: addon-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
+          restore-keys: |
+            addon-${{ runner.os }}-
+
       - name: Install npm dependencies
+        if: steps.cache-npm.outputs.cache-hit != 'true'
         run: npm install --no-audit --prefer-offline
 
       - name: Build RocketMQ native deps
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: ./deps/rocketmq/build.sh
 
       - name: Build addon
+        if: steps.cache-addon.outputs.cache-hit != 'true'
         run: |
           npx cmake-js compile --CDCMAKE_BUILD_TYPE=Release \
             --CDCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
@@ -283,7 +443,7 @@ jobs:
   release:
     needs: [linux-gnu-x64, linux-gnu-arm64, linux-musl-x64, linux-musl-arm64, macos-universal]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
@@ -304,10 +464,10 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.sha) }}
-          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('Build {0}', github.sha) }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           draft: false
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          prerelease: false
           files: Release/*.node
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -323,8 +483,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -337,7 +499,64 @@ jobs:
           find artifacts -name "*.node" -exec cp {} Release/ \;
           ls -lh Release/
 
+      - name: Verify version consistency
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch: package.json=$PKG_VERSION, tag=$TAG_VERSION"
+            exit 1
+          fi
+          echo "✅ Version consistent: $PKG_VERSION"
+
+      - name: Install dependencies (skip native build)
+        run: npm ci --include=dev --ignore-scripts
+        env:
+          NODE_ENV: development
+          NPM_CONFIG_PRODUCTION: "false"
+
+      - name: Ensure node types
+        run: |
+          if [ ! -f "node_modules/@types/node/index.d.ts" ]; then
+            NODE_TYPES_VERSION=$(node -p "require('./package.json').devDependencies['@types/node']")
+            npm install --no-save --no-package-lock --ignore-scripts "@types/node@${NODE_TYPES_VERSION}"
+          fi
+
+      - name: Build TypeScript
+        run: npm run build:ts
+
+      - name: Validate build output
+        run: |
+          echo "Validating TypeScript build..."
+          if [ ! -f "dist/index.js" ]; then
+            echo "❌ dist/index.js not found"
+            exit 1
+          fi
+          if [ ! -f "dist/index.d.ts" ]; then
+            echo "❌ dist/index.d.ts not found"
+            exit 1
+          fi
+          echo "✅ TypeScript build verified"
+
+          echo "Validating native addons..."
+          for f in linux-x86_64-gnu linux-aarch64-gnu linux-x86_64-musl linux-aarch64-musl darwin-universal; do
+            if [ ! -f "Release/${f}-rocketmq.node" ]; then
+              echo "❌ Missing: ${f}-rocketmq.node"
+              exit 1
+            fi
+          done
+          echo "✅ All native addons present"
+
+      - name: Verify package contents
+        run: |
+          echo "=== Package contents ==="
+          npm pack --dry-run
+          echo ""
+          echo "=== Release binaries ==="
+          ls -lh Release/
+
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

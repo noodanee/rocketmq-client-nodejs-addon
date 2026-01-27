@@ -22,9 +22,9 @@ function detectLibc(): 'gnu' | 'musl' {
   }
 
   try {
-    const output = execSync('ldd --version', { 
-      encoding: 'utf8', 
-      stdio: ['ignore', 'pipe', 'ignore'] 
+    const output = execSync('ldd --version', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
     });
     if (/musl/i.test(output)) {
       return 'musl';

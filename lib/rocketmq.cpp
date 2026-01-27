@@ -32,6 +32,7 @@
 #include "consumer_ack.h"
 #include "producer.h"
 #include "push_consumer.h"
+#include "common_utils.h"
 
 namespace __node_rocketmq__ {
 
@@ -46,8 +47,8 @@ AddonData* GetAddonData(Napi::Env env) {
 namespace {
 #if ROCKETMQ_HAS_EXECINFO && !defined(ROCKETMQ_COVERAGE)
 void CrashSignalHandler(int signo) {
-  void* frames[64];
-  const int count = backtrace(frames, 64);
+  void* frames[config::MAX_BACKTRACE_FRAMES];
+  const int count = backtrace(frames, config::MAX_BACKTRACE_FRAMES);
   fprintf(stderr, "[rocketmq-addon] signal %d\n", signo);
   backtrace_symbols_fd(frames, count, STDERR_FILENO);
   std::signal(signo, SIG_DFL);

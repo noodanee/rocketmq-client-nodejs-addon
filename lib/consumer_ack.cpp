@@ -22,20 +22,9 @@
 #include <napi.h>
 
 #include "addon_data.h"
+#include "common_utils.h"
 
 namespace __node_rocketmq__ {
-
-#if defined(ROCKETMQ_COVERAGE) || defined(ROCKETMQ_USE_STUB)
-namespace {
-bool IsEnvEnabled(const char* name) {
-  const char* value = std::getenv(name);
-  if (value == nullptr) {
-    return false;
-  }
-  return value[0] != '\0' && value[0] != '0';
-}
-}
-#endif
 
 Napi::Object ConsumerAck::Init(Napi::Env env, Napi::Object exports, AddonData* addon_data) {
   Napi::Function func = DefineClass(
@@ -71,7 +60,11 @@ void ConsumerAck::Done(std::exception_ptr exception) {
   if (!done_called_.exchange(true)) {
     try {
       promise_.set_exception(exception);
-    } catch (const std::future_error&) {
+    } catch (const std::future_error& e) {
+      // 记录错误但不抛出异常，因为这可能在析构函数中调用
+      fprintf(stderr, "[RocketMQ] Warning: Failed to set exception in ConsumerAck::Done: %s\n", e.what());
+    } catch (const std::exception& e) {
+      fprintf(stderr, "[RocketMQ] Warning: Unexpected error in ConsumerAck::Done: %s\n", e.what());
     }
   }
 }
@@ -99,7 +92,10 @@ Napi::Value ConsumerAck::Done(const Napi::CallbackInfo& info) {
 #endif
   try {
     promise_.set_value(ack);
-  } catch (const std::future_error&) {
+  } catch (const std::future_error& e) {
+    fprintf(stderr, "[RocketMQ] Warning: Failed to set value in ConsumerAck::Done: %s\n", e.what());
+  } catch (const std::exception& e) {
+    fprintf(stderr, "[RocketMQ] Warning: Unexpected error in ConsumerAck::Done: %s\n", e.what());
   }
   return info.Env().Undefined();
 }

@@ -18,6 +18,8 @@
 #define __ROCKETMQ_PRODUCER_H__
 
 #include <napi.h>
+#include <atomic>
+#include <mutex>
 
 #include <DefaultMQProducer.h>
 
@@ -46,9 +48,16 @@ class RocketMQProducer : public Napi::ObjectWrap<RocketMQProducer> {
 
  private:
   void SetOptions(const Napi::Object& options);
+  void SafeShutdown();
 
  private:
   rocketmq::DefaultMQProducer producer_;
+  std::atomic<bool> is_started_{false};
+  std::atomic<bool> is_shutting_down_{false};
+  std::atomic<bool> is_destroyed_{false};
+  // state_mutex_ 用于保护状态转换的原子性
+  // 注意：start()/shutdown() 期间会持有锁，调用方应避免在回调中访问状态
+  mutable std::mutex state_mutex_;
 };
 
 }  // namespace __node_rocketmq__

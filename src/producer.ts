@@ -14,7 +14,7 @@ const SEND_RESULT_STATUS_STR: Record<number, string> = {
   0: 'OK',
   1: 'FLUSH_DISK_TIMEOUT',
   2: 'FLUSH_SLAVE_TIMEOUT',
-  3: 'SLAVE_NOT_AVAILABLE',
+  3: 'SLAVE_NOT_AVAILABLE'
 };
 
 
@@ -89,18 +89,18 @@ export class RocketMQProducer {
     if (typeof accessKey !== 'string') throw new TypeError('accessKey must be a string');
     if (typeof secretKey !== 'string') throw new TypeError('secretKey must be a string');
     if (typeof onsChannel !== 'string') throw new TypeError('onsChannel must be a string');
-    
+
     this.core.setSessionCredentials(accessKey, secretKey, onsChannel);
     return true;
   }
 
   private getStatusName(status: Status = this.status): string {
     switch (status) {
-      case Status.STOPPED: return 'STOPPED';
-      case Status.STARTED: return 'STARTED';
-      case Status.STARTING: return 'STARTING';
-      case Status.STOPPING: return 'STOPPING';
-      default: return 'UNKNOWN';
+    case Status.STOPPED: return 'STOPPED';
+    case Status.STARTED: return 'STARTED';
+    case Status.STARTING: return 'STARTING';
+    case Status.STOPPING: return 'STOPPING';
+    default: return 'UNKNOWN';
     }
   }
 
@@ -263,8 +263,8 @@ export class RocketMQProducer {
         this.status === Status.STOPPED
           ? 'STOPPED'
           : this.status === Status.STARTING
-          ? 'STARTING'
-          : 'STOPPING';
+            ? 'STARTING'
+            : 'STOPPING';
       const err = new Error(`Producer must be started before sending messages. Current status: ${statusName}`);
       return actualCallback ? actualCallback(err) : Promise.reject(err);
     }
@@ -284,7 +284,7 @@ export class RocketMQProducer {
         reject = _reject;
       });
     } else {
-      resolve = (result: SendResult) => actualCallback!(null, result);
+      resolve = (result: SendResult) => actualCallback(null, result);
       reject = actualCallback;
     }
 
@@ -294,10 +294,10 @@ export class RocketMQProducer {
       }
 
       const ret: SendResult = {
-        status: status!,
-        statusStr: SEND_RESULT_STATUS_STR[status!] || 'UNKNOWN',
-        msgId: msgId!,
-        offset: offset!,
+        status: status || 0,
+        statusStr: SEND_RESULT_STATUS_STR[status || 0] || 'UNKNOWN',
+        msgId: msgId || '',
+        offset: offset || 0
       };
       resolve(ret);
     });

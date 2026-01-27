@@ -1,0 +1,104 @@
+name: DingTalk Notify
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    types: [opened, closed, reopened]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, closed, reopened]
+  issue_comment:
+    types: [created]
+  release:
+    types: [published]
+  workflow_run:
+    workflows: ["Build and Release"]
+    types: [completed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send DingTalk notification
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          case "$EVENT_NAME" in
+            push)
+              TITLE="📤 Push to $REF_NAME"
+              TEXT="**操作人**: $ACTOR\n\n[查看详情]($RUN_URL)"
+              ;;
+            pull_request)
+              ACTION="${{ github.event.action }}"
+              PR_TITLE="${{ github.event.pull_request.title }}"
+              PR_URL="${{ github.event.pull_request.html_url }}"
+              TITLE="🔀 PR $ACTION: $PR_TITLE"
+              TEXT="**操作人**: $ACTOR\n\n[查看 PR]($PR_URL)"
+              ;;
+            pull_request_review)
+              PR_TITLE="${{ github.event.pull_request.title }}"
+              PR_URL="${{ github.event.pull_request.html_url }}"
+              STATE="${{ github.event.review.state }}"
+              TITLE="👀 PR Review ($STATE)"
+              TEXT="**PR**: $PR_TITLE\n\n**操作人**: $ACTOR\n\n[查看]($PR_URL)"
+              ;;
+            pull_request_review_comment)
+              PR_TITLE="${{ github.event.pull_request.title }}"
+              COMMENT_URL="${{ github.event.comment.html_url }}"
+              TITLE="💬 PR Comment"
+              TEXT="**PR**: $PR_TITLE\n\n**操作人**: $ACTOR\n\n[查看评论]($COMMENT_URL)"
+              ;;
+            issues)
+              ACTION="${{ github.event.action }}"
+              ISSUE_TITLE="${{ github.event.issue.title }}"
+              ISSUE_URL="${{ github.event.issue.html_url }}"
+              TITLE="📋 Issue $ACTION: $ISSUE_TITLE"
+              TEXT="**操作人**: $ACTOR\n\n[查看 Issue]($ISSUE_URL)"
+              ;;
+            issue_comment)
+              ISSUE_TITLE="${{ github.event.issue.title }}"
+              COMMENT_URL="${{ github.event.comment.html_url }}"
+              TITLE="💬 Issue Comment"
+              TEXT="**Issue**: $ISSUE_TITLE\n\n**操作人**: $ACTOR\n\n[查看评论]($COMMENT_URL)"
+              ;;
+            release)
+              TAG="${{ github.event.release.tag_name }}"
+              RELEASE_URL="${{ github.event.release.html_url }}"
+              TITLE="🚀 Release $TAG"
+              TEXT="**操作人**: $ACTOR\n\n[查看 Release]($RELEASE_URL)"
+              ;;
+            workflow_run)
+              STATUS="${{ github.event.workflow_run.conclusion }}"
+              BRANCH="${{ github.event.workflow_run.head_branch }}"
+              WF_URL="${{ github.event.workflow_run.html_url }}"
+              if [ "$STATUS" = "success" ]; then
+                TITLE="✅ Build Success"
+              else
+                TITLE="❌ Build Failed"
+              fi
+              TEXT="**分支**: $BRANCH\n\n**状态**: $STATUS\n\n[查看详情]($WF_URL)"
+              ;;
+            *)
+              TITLE="🔔 $EVENT_NAME"
+              TEXT="**操作人**: $ACTOR\n\n[查看详情]($RUN_URL)"
+              ;;
+          esac
+
+          curl -s -X POST "${{ secrets.DINGTALK_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"msgtype\": \"markdown\",
+              \"markdown\": {
+                \"title\": \"[RocketMQ] $TITLE\",
+                \"text\": \"### [RocketMQ] $TITLE\n\n**仓库**: $REPO\n\n$TEXT\"
+              }
+            }"

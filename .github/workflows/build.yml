@@ -337,11 +337,44 @@ jobs:
           find artifacts -name "*.node" -exec cp {} Release/ \;
           ls -lh Release/
 
+      - name: Verify version consistency
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch: package.json=$PKG_VERSION, tag=$TAG_VERSION"
+            exit 1
+          fi
+          echo "✅ Version consistent: $PKG_VERSION"
+
       - name: Install dependencies (skip native build)
         run: npm ci --ignore-scripts
 
       - name: Build TypeScript
         run: npm run build:ts
+
+      - name: Validate build output
+        run: |
+          echo "Validating TypeScript build..."
+          if [ ! -f "dist/index.js" ]; then
+            echo "❌ dist/index.js not found"
+            exit 1
+          fi
+          if [ ! -f "dist/index.d.ts" ]; then
+            echo "❌ dist/index.d.ts not found"
+            exit 1
+          fi
+          echo "✅ TypeScript build verified"
+
+          echo "Validating native addons..."
+          for f in linux-x86_64-gnu linux-aarch64-gnu linux-x86_64-musl linux-aarch64-musl darwin-universal; do
+            if [ ! -f "Release/${f}-rocketmq.node" ]; then
+              echo "❌ Missing: ${f}-rocketmq.node"
+              exit 1
+            fi
+          done
+          echo "✅ All native addons present"
 
       - name: Verify package contents
         run: |

@@ -1,7 +1,12 @@
 #include <cstdlib>
+#include <atomic>
 #include <string>
 #include <utility>
 #include <vector>
+#include <chrono>
+#include <mutex>
+#include <thread>
+#include <unordered_map>
 
 #include "ClientRPCHook.h"
 #include "DefaultMQProducer.h"
@@ -57,6 +62,51 @@ int GetEnvInt(const char* name, int fallback) {
   }
   return static_cast<int>(parsed);
 }
+
+struct PushConsumerAccessState {
+  std::mutex mutex;
+  std::unordered_map<const void*, size_t> active;
+};
+
+PushConsumerAccessState& GetPushConsumerAccessState() {
+  static PushConsumerAccessState state;
+  return state;
+}
+
+class PushConsumerAccessGuard {
+ public:
+  explicit PushConsumerAccessGuard(const void* consumer) : consumer_(consumer) {
+    auto& state = GetPushConsumerAccessState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    size_t& active = state.active[consumer_];
+    if (IsEnvEnabled("ROCKETMQ_STUB_CONSUMER_FAIL_ON_CONCURRENT_ACCESS") && active > 0) {
+      throw MQException("consumer concurrent access");
+    }
+    active++;
+    entered_ = true;
+  }
+
+  ~PushConsumerAccessGuard() {
+    if (!entered_) {
+      return;
+    }
+    auto& state = GetPushConsumerAccessState();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    auto it = state.active.find(consumer_);
+    if (it == state.active.end()) {
+      return;
+    }
+    if (it->second <= 1) {
+      state.active.erase(it);
+      return;
+    }
+    it->second--;
+  }
+
+ private:
+  const void* consumer_;
+  bool entered_{false};
+};
 
 MQMessageExt BuildMessageFromEnv() {
   MQMessageExt message(
@@ -226,30 +276,85 @@ void DefaultMQProducer::setRPCHook(std::shared_ptr<ClientRPCHook> rpc_hook) {
 }
 
 void DefaultMQProducer::start() {
+  if (shutdown_) {
+    throw MQException("producer: SHUTDOWN_ALREADY");
+  }
   if (IsEnvEnabled("ROCKETMQ_STUB_PRODUCER_START_ERROR")) {
     throw MQException("producer start error");
+  }
+  int delay_ms = GetEnvInt("ROCKETMQ_STUB_PRODUCER_START_DELAY_MS", 0);
+  if (delay_ms > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+  }
+  static std::atomic<int> start_error_once{0};
+  if (IsEnvEnabled("ROCKETMQ_STUB_PRODUCER_START_ERROR_ONCE")) {
+    if (start_error_once.fetch_add(1) == 0) {
+      throw MQException("producer start error");
+    }
+  } else {
+    start_error_once.store(0);
   }
 }
 
 void DefaultMQProducer::shutdown() {
+  {
+    std::vector<std::thread> pending;
+    {
+      std::lock_guard<std::mutex> lock(threads_mutex_);
+      pending.swap(threads_);
+    }
+    for (auto& t : pending) {
+      if (t.joinable()) {
+        t.join();
+      }
+    }
+  }
   if (IsEnvEnabled("ROCKETMQ_STUB_PRODUCER_SHUTDOWN_ERROR")) {
     throw MQException("producer shutdown error");
   }
+  shutdown_ = true;
 }
 
-void DefaultMQProducer::send(MQMessage&, AutoDeleteSendCallback* callback) {
+void DefaultMQProducer::send(MQMessage&, SendCallback* callback) {
   if (IsEnvEnabled("ROCKETMQ_STUB_SEND_THROW")) {
-    throw MQException("producer send throw");
+    if (callback) {
+      MQException exception("producer send throw");
+      callback->onException(exception);
+    }
+    return;
   }
 
   if (callback == nullptr) {
     return;
   }
 
+  int async_delay_ms = GetEnvInt("ROCKETMQ_STUB_SEND_ASYNC_DELAY_MS", 0);
+  if (async_delay_ms > 0) {
+    bool send_exception = IsEnvEnabled("ROCKETMQ_STUB_SEND_EXCEPTION");
+    SendStatus status = static_cast<SendStatus>(
+        GetEnvInt("ROCKETMQ_STUB_SEND_STATUS", static_cast<int>(SEND_OK)));
+    std::string msg_id = GetEnvString("ROCKETMQ_STUB_SEND_MSG_ID", "MSGID");
+    int64_t queue_offset = GetEnvInt64("ROCKETMQ_STUB_SEND_QUEUE_OFFSET", 0);
+    std::thread t([callback, async_delay_ms, send_exception, status, msg_id, queue_offset]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(async_delay_ms));
+      if (send_exception) {
+        MQException exception("producer send exception");
+        callback->onException(exception);
+      } else {
+        SendResult result(status, msg_id, queue_offset);
+        callback->onSuccess(result);
+      }
+    });
+    {
+      std::lock_guard<std::mutex> lock(threads_mutex_);
+      threads_.push_back(std::move(t));
+    }
+    return;
+  }
+
   if (IsEnvEnabled("ROCKETMQ_STUB_SEND_EXCEPTION")) {
     MQException exception("producer send exception");
     callback->onException(exception);
-    delete callback;
     return;
   }
 
@@ -260,7 +365,6 @@ void DefaultMQProducer::send(MQMessage&, AutoDeleteSendCallback* callback) {
       GetEnvString("ROCKETMQ_STUB_SEND_MSG_ID", "MSGID"),
       GetEnvInt64("ROCKETMQ_STUB_SEND_QUEUE_OFFSET", 0));
   callback->onSuccess(result);
-  delete callback;
 }
 
 DefaultMQPushConsumer::DefaultMQPushConsumer(const std::string& group_name)
@@ -271,7 +375,8 @@ DefaultMQPushConsumer::DefaultMQPushConsumer(const std::string& group_name)
       consume_message_batch_max_size_(0),
       max_reconsume_times_(0),
       rpc_hook_(nullptr),
-      listener_(nullptr) {}
+      listener_(nullptr),
+      listener_holder_(nullptr) {}
 
 void DefaultMQPushConsumer::set_group_name(const std::string& group_name) {
   group_name_ = group_name;
@@ -298,35 +403,80 @@ void DefaultMQPushConsumer::set_max_reconsume_times(int times) {
 }
 
 void DefaultMQPushConsumer::setRPCHook(std::shared_ptr<ClientRPCHook> rpc_hook) {
+  PushConsumerAccessGuard guard(this);
   rpc_hook_ = std::move(rpc_hook);
 }
 
 void DefaultMQPushConsumer::start() {
+  PushConsumerAccessGuard guard(this);
+  if (shutdown_) {
+    throw MQException("consumer: SHUTDOWN_ALREADY");
+  }
   if (IsEnvEnabled("ROCKETMQ_STUB_CONSUMER_START_ERROR")) {
     throw MQException("consumer start error");
   }
+  int delay_ms = GetEnvInt("ROCKETMQ_STUB_CONSUMER_START_DELAY_MS", 0);
+  if (delay_ms > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+  }
 
-  if (listener_ != nullptr && IsEnvEnabled("ROCKETMQ_STUB_CONSUME_MESSAGE")) {
-    std::vector<MQMessageExt> messages;
-    messages.push_back(BuildMessageFromEnv());
-    listener_->consumeMessage(messages);
+  if (listener_ != nullptr) {
+    if (IsEnvEnabled("ROCKETMQ_STUB_CONSUME_MESSAGE_ASYNC")) {
+      auto listener = listener_holder_;
+      if (!listener && listener_ != nullptr) {
+        listener = std::shared_ptr<MessageListenerConcurrently>(
+            listener_, [](MessageListenerConcurrently*) {});
+      }
+      if (!listener) {
+        return;
+      }
+      auto* self = this;
+      std::thread([listener, self]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (self->shutdown_.load()) {
+          return;
+        }
+        std::vector<MQMessageExt> messages;
+        messages.push_back(BuildMessageFromEnv());
+        listener->consumeMessage(messages);
+      }).detach();
+      return;
+    }
+
+    if (IsEnvEnabled("ROCKETMQ_STUB_CONSUME_MESSAGE")) {
+      std::vector<MQMessageExt> messages;
+      messages.push_back(BuildMessageFromEnv());
+      listener_->consumeMessage(messages);
+    }
   }
 }
 
 void DefaultMQPushConsumer::shutdown() {
+  PushConsumerAccessGuard guard(this);
   if (IsEnvEnabled("ROCKETMQ_STUB_CONSUMER_SHUTDOWN_ERROR")) {
     throw MQException("consumer shutdown error");
   }
+  shutdown_ = true;
+  listener_holder_.reset();
 }
 
 void DefaultMQPushConsumer::subscribe(const std::string&, const std::string&) {
+  PushConsumerAccessGuard guard(this);
   if (IsEnvEnabled("ROCKETMQ_STUB_CONSUMER_SUBSCRIBE_ERROR")) {
     throw MQException("consumer subscribe error");
   }
 }
 
 void DefaultMQPushConsumer::registerMessageListener(MessageListenerConcurrently* listener) {
+  PushConsumerAccessGuard guard(this);
   listener_ = listener;
+  listener_holder_.reset();
+}
+
+void DefaultMQPushConsumer::registerMessageListener(std::shared_ptr<MessageListenerConcurrently> listener) {
+  PushConsumerAccessGuard guard(this);
+  listener_holder_ = std::move(listener);
+  listener_ = listener_holder_.get();
 }
 
 }

@@ -1,20 +1,27 @@
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 import { execSync } from 'child_process';
-import bindings from 'bindings';
+import { createRequire } from 'module';
 
 function normalizeArch(arch: string): string | null {
   if (arch === 'x64') return 'x86_64';
   if (arch === 'arm64') return 'aarch64';
-  return arch;
+  return null;
 }
 
 function detectLibc(): 'gnu' | 'musl' {
   if (process.report && typeof process.report.getReport === 'function') {
     try {
-      const report = process.report.getReport() as any;
-      if (report?.header?.glibcVersionRuntime) {
-        return 'gnu';
+      const report = process.report.getReport();
+      if (report && typeof report === 'object' && 'header' in report) {
+        const header = (report as any).header;
+        if (header && typeof header === 'object') {
+          const glibcVersionRuntime = (header as any).glibcVersionRuntime;
+          if (typeof glibcVersionRuntime === 'string' && glibcVersionRuntime.length > 0) {
+            return 'gnu';
+          }
+        }
       }
     } catch (_) {
       // ignore and continue with fallbacks
@@ -67,26 +74,63 @@ function getPlatform(): string {
   throw new Error(`Unsupported platform: ${platform}, architecture: ${arch}`);
 }
 
-function loadBinding(): NativeBinding {
-  const platform = getPlatform();
-  const candidates = new Set([`${platform}-rocketmq.node`]);
+function getBindingNames(platform: string): string[] {
+  const candidates = new Set([`${platform}-rocketmq.node`, 'rocketmq.node']);
 
   if (platform.startsWith('linux-')) {
-    const legacy = platform.replace(/-(gnu|musl)$/, '');
-    candidates.add(`${legacy}-rocketmq.node`);
+    candidates.add(`${platform.replace(/-(gnu|musl)$/, '')}-rocketmq.node`);
   }
 
+  return [...candidates];
+}
+
+function getBindingDirectories(rootDir: string): string[] {
+  const directories: string[] = [];
+  const compiledDir = process.env.NODE_BINDINGS_COMPILED_DIR;
+
+  if (compiledDir) {
+    directories.push(path.isAbsolute(compiledDir) ? compiledDir : path.join(rootDir, compiledDir));
+  }
+
+  directories.push(path.join(rootDir, 'build'));
+  directories.push(path.join(rootDir, 'Release'));
+  directories.push(__dirname);
+
+  return directories;
+}
+
+function loadBinding(): NativeBinding {
+  const platform = getPlatform();
+  const rootDir = path.resolve(__dirname, '..');
+  const loadModule = createRequire(__filename);
+  const searchedPaths: string[] = [];
   let lastError: Error | undefined;
-  for (const candidate of candidates) {
-    try {
-      return bindings(candidate);
-    } catch (err) {
-      lastError = err as Error;
+
+  for (const directory of getBindingDirectories(rootDir)) {
+    for (const bindingName of getBindingNames(platform)) {
+      const candidate = path.join(directory, bindingName);
+      searchedPaths.push(candidate);
+
+      if (!fs.existsSync(candidate)) {
+        continue;
+      }
+
+      try {
+        const binding = loadModule(candidate) as NativeBinding | { default?: NativeBinding };
+        return ('default' in binding && binding.default ? binding.default : binding) as NativeBinding;
+      } catch (err) {
+        lastError = err as Error;
+      }
     }
   }
 
+  const locations = searchedPaths.join(', ');
+  if (!lastError) {
+    throw new Error(`Failed to load RocketMQ addon (${platform}). Looked in: ${locations}`);
+  }
+
   throw new Error(
-    `Failed to load RocketMQ addon (${platform}): ${lastError?.message || 'unknown error'}`
+    `Failed to load RocketMQ addon (${platform}) from ${locations}: ${lastError.message || 'unknown error'}`
   );
 }
 
@@ -105,8 +149,9 @@ export interface NativeProducer {
 export interface NativePushConsumer {
   start(callback: (err: Error | null) => void): void;
   shutdown(callback: (err: Error | null) => void): void;
+  isListenerIdle(): boolean;
   subscribe(topic: string, expression: string): void;
-  setListener(callback: (msg: any, ack: any) => void): void;
+  setListener(callback: (msg: { topic: string; tags: string; keys: string; body: string; msgId: string }, ack: { done(success?: boolean): void }) => void): void;
   setSessionCredentials(accessKey: string, secretKey: string, onsChannel: string): void;
 }
 
@@ -118,7 +163,3 @@ export interface NativeBinding {
 const nativeBinding: NativeBinding = loadBinding();
 
 export default nativeBinding;
-
-// CommonJS compatibility
-// module.exports = nativeBinding;
-// module.exports.default = nativeBinding;

@@ -42,7 +42,12 @@ DefaultMQProducer::DefaultMQProducer(const std::string& groupname,
   producer_impl_ = DefaultMQProducerImpl::create(real_config(), rpcHook);
 }
 
-DefaultMQProducer::~DefaultMQProducer() = default;
+DefaultMQProducer::~DefaultMQProducer() {
+  try {
+    shutdown();
+  } catch (...) {
+  }
+}
 
 void DefaultMQProducer::start() {
   producer_impl_->start();

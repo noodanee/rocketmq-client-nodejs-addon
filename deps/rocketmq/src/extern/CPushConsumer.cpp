@@ -155,7 +155,7 @@ int RegisterMessageCallback(CPushConsumer* consumer, MessageCallBack callback) {
   if (consumer == NULL || callback == NULL) {
     return NULL_POINTER;
   }
-  auto* listenerInner = new MessageListenerConcurrentlyInner(consumer, callback);
+  auto listenerInner = std::make_shared<MessageListenerConcurrentlyInner>(consumer, callback);
   reinterpret_cast<DefaultMQPushConsumer*>(consumer)->registerMessageListener(listenerInner);
   return OK;
 }
@@ -164,8 +164,8 @@ int UnregisterMessageCallback(CPushConsumer* consumer) {
   if (consumer == NULL) {
     return NULL_POINTER;
   }
-  auto* listenerInner = reinterpret_cast<DefaultMQPushConsumer*>(consumer)->getMessageListener();
-  delete listenerInner;
+  reinterpret_cast<DefaultMQPushConsumer*>(consumer)->registerMessageListener(
+      std::shared_ptr<MessageListenerConcurrently>(nullptr));
   return OK;
 }
 
@@ -173,8 +173,8 @@ int RegisterMessageCallbackOrderly(CPushConsumer* consumer, MessageCallBack call
   if (consumer == NULL || callback == NULL) {
     return NULL_POINTER;
   }
-  auto* messageListenerOrderlyInner = new MessageListenerOrderlyInner(consumer, callback);
-  reinterpret_cast<DefaultMQPushConsumer*>(consumer)->registerMessageListener(messageListenerOrderlyInner);
+  auto listenerInner = std::make_shared<MessageListenerOrderlyInner>(consumer, callback);
+  reinterpret_cast<DefaultMQPushConsumer*>(consumer)->registerMessageListener(listenerInner);
   return OK;
 }
 
@@ -182,8 +182,8 @@ int UnregisterMessageCallbackOrderly(CPushConsumer* consumer) {
   if (consumer == NULL) {
     return NULL_POINTER;
   }
-  auto* listenerInner = reinterpret_cast<DefaultMQPushConsumer*>(consumer)->getMessageListener();
-  delete listenerInner;
+  reinterpret_cast<DefaultMQPushConsumer*>(consumer)->registerMessageListener(
+      std::shared_ptr<MessageListenerOrderly>(nullptr));
   return OK;
 }
 

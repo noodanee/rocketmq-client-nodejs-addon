@@ -107,6 +107,8 @@ producer.shutdown((err) => {
 await producer.shutdown();
 ```
 
+> **Note:** Producer is a one-shot object. Once `shutdown()` is called, the instance cannot be restarted. Create a new `Producer` instance if you need to send messages again.
+
 ### PushConsumer
 
 #### Constructor
@@ -192,6 +194,8 @@ consumer.shutdown((err) => {
 // With Promise
 await consumer.shutdown();
 ```
+
+> **Note:** PushConsumer is a one-shot object. Once `shutdown()` is called, the instance cannot be restarted. Create a new `PushConsumer` instance if you need to consume messages again.
 
 ### Aliyun RocketMQ
 

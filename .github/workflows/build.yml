@@ -16,7 +16,40 @@ on:
         default: false
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+          run_install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint:check
+
+      - name: Build test binary
+        run: pnpm run build:test
+
+      - name: Test
+        run: npx vitest run --reporter=verbose
+
   linux-gnu-x64:
+    needs: validate
     runs-on: ubuntu-24.04
     container:
       image: alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/alinux3:latest
@@ -27,12 +60,13 @@ jobs:
         run: yum install -y git curl wget xz tar unzip rsync which python3 python3-pip python3-setuptools autoconf automake libtool pkgconfig gcc gcc-c++ make ninja-build cmake file vim procps-ng iputils
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Node.js
         run: |
-          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+          curl -fsSL https://rpm.nodesource.com/setup_24.x | bash -
           yum install -y nodejs
+          npm install -g pnpm@11
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -53,17 +87,17 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
-      - name: Cache npm dependencies
+      - name: Cache pnpm dependencies
         id: cache-npm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
-          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          key: pnpm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+            pnpm-${{ runner.os }}-${{ env.ZIG_TARGET }}-
 
       - name: Cache RocketMQ native deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             deps/rocketmq/bin
@@ -75,16 +109,16 @@ jobs:
 
       - name: Cache addon build
         id: cache-addon
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/rocketmq.node
           key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
           restore-keys: |
             addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-
 
-      - name: Install npm dependencies
+      - name: Install dependencies
         if: steps.cache-npm.outputs.cache-hit != 'true'
-        run: npm install --no-audit --prefer-offline
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build RocketMQ native deps
         if: steps.cache-addon.outputs.cache-hit != 'true'
@@ -101,12 +135,13 @@ jobs:
           cp build/rocketmq.node Release/linux-x86_64-gnu-rocketmq.node
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64-gnu
           path: Release/linux-x86_64-gnu-rocketmq.node
 
   linux-gnu-arm64:
+    needs: validate
     runs-on: ubuntu-24.04-arm
     container:
       image: alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/alinux3:latest
@@ -117,12 +152,13 @@ jobs:
         run: yum install -y git curl wget xz tar unzip rsync which python3 python3-pip python3-setuptools autoconf automake libtool pkgconfig gcc gcc-c++ make ninja-build cmake file vim procps-ng iputils
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Node.js
         run: |
-          curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+          curl -fsSL https://rpm.nodesource.com/setup_24.x | bash -
           yum install -y nodejs
+          npm install -g pnpm@11
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -143,17 +179,17 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
-      - name: Cache npm dependencies
+      - name: Cache pnpm dependencies
         id: cache-npm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
-          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          key: pnpm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-
+            pnpm-${{ runner.os }}-${{ env.ZIG_TARGET }}-
 
       - name: Cache RocketMQ native deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             deps/rocketmq/bin
@@ -165,16 +201,16 @@ jobs:
 
       - name: Cache addon build
         id: cache-addon
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/rocketmq.node
           key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
           restore-keys: |
             addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-
 
-      - name: Install npm dependencies
+      - name: Install dependencies
         if: steps.cache-npm.outputs.cache-hit != 'true'
-        run: npm install --no-audit --prefer-offline
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build RocketMQ native deps
         if: steps.cache-addon.outputs.cache-hit != 'true'
@@ -191,23 +227,27 @@ jobs:
           cp build/rocketmq.node Release/linux-aarch64-gnu-rocketmq.node
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-aarch64-gnu
           path: Release/linux-aarch64-gnu-rocketmq.node
 
   linux-musl-x64:
+    needs: validate
     runs-on: ubuntu-24.04
     container:
-      image: node:20-alpine
+      image: node:24-alpine
     env:
       ZIG_TARGET: x86_64-linux-musl
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: apk add --no-cache bash build-base cmake ninja python3 curl unzip git autoconf automake libtool pkgconfig
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -228,17 +268,17 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
-      - name: Cache npm dependencies
+      - name: Cache pnpm dependencies
         id: cache-npm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
-          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          key: pnpm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            npm-${{ runner.os }}-
+            pnpm-${{ runner.os }}-
 
       - name: Cache RocketMQ native deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             deps/rocketmq/bin
@@ -250,16 +290,16 @@ jobs:
 
       - name: Cache addon build
         id: cache-addon
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/rocketmq.node
           key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
           restore-keys: |
             addon-${{ runner.os }}-
 
-      - name: Install npm dependencies
+      - name: Install dependencies
         if: steps.cache-npm.outputs.cache-hit != 'true'
-        run: npm install --no-audit --prefer-offline
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build RocketMQ native deps
         if: steps.cache-addon.outputs.cache-hit != 'true'
@@ -276,23 +316,30 @@ jobs:
           cp build/rocketmq.node Release/linux-x86_64-musl-rocketmq.node
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64-musl
           path: Release/linux-x86_64-musl-rocketmq.node
 
   linux-musl-arm64:
+    needs: validate
     runs-on: ubuntu-24.04-arm
     env:
       ZIG_TARGET: aarch64-linux-musl
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+          run_install: false
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build python3 curl unzip git autoconf automake libtool pkg-config
@@ -316,17 +363,17 @@ jobs:
           echo "CXXFLAGS=-fPIC -fno-sanitize=undefined" >> "$GITHUB_ENV"
           echo "LDFLAGS=-static-libstdc++ -static-libgcc -fno-sanitize=undefined" >> "$GITHUB_ENV"
 
-      - name: Cache npm dependencies
+      - name: Cache pnpm dependencies
         id: cache-npm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
-          key: npm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('package-lock.json') }}
+          key: pnpm-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            npm-${{ runner.os }}-
+            pnpm-${{ runner.os }}-
 
       - name: Cache RocketMQ native deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             deps/rocketmq/bin
@@ -338,16 +385,16 @@ jobs:
 
       - name: Cache addon build
         id: cache-addon
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/rocketmq.node
           key: addon-${{ runner.os }}-${{ env.ZIG_TARGET }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
           restore-keys: |
             addon-${{ runner.os }}-
 
-      - name: Install npm dependencies
+      - name: Install dependencies
         if: steps.cache-npm.outputs.cache-hit != 'true'
-        run: npm install --no-audit --prefer-offline
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build RocketMQ native deps
         if: steps.cache-addon.outputs.cache-hit != 'true'
@@ -364,36 +411,43 @@ jobs:
           cp build/rocketmq.node Release/linux-aarch64-musl-rocketmq.node
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-aarch64-musl
           path: Release/linux-aarch64-musl-rocketmq.node
 
   macos-universal:
+    needs: validate
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+          run_install: false
 
       - name: Install build tools
         run: brew install cmake ninja xz autoconf automake libtool pkg-config
 
-      - name: Cache npm dependencies
+      - name: Cache pnpm dependencies
         id: cache-npm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
-          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
-            npm-${{ runner.os }}-
+            pnpm-${{ runner.os }}-
 
       - name: Cache RocketMQ native deps
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             deps/rocketmq/bin
@@ -405,16 +459,16 @@ jobs:
 
       - name: Cache addon build
         id: cache-addon
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/rocketmq.node
           key: addon-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('lib/**', 'CMakeLists.txt', 'package.json') }}
           restore-keys: |
             addon-${{ runner.os }}-
 
-      - name: Install npm dependencies
+      - name: Install dependencies
         if: steps.cache-npm.outputs.cache-hit != 'true'
-        run: npm install --no-audit --prefer-offline
+        run: pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build RocketMQ native deps
         if: steps.cache-addon.outputs.cache-hit != 'true'
@@ -435,7 +489,7 @@ jobs:
           cp build/rocketmq.node Release/darwin-universal-rocketmq.node
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: darwin-universal
           path: Release/darwin-universal-rocketmq.node
@@ -448,10 +502,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -478,18 +532,22 @@ jobs:
     if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.publish_npm)
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+          run_install: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -511,7 +569,7 @@ jobs:
           echo "✅ Version consistent: $PKG_VERSION"
 
       - name: Install dependencies (skip native build)
-        run: npm ci --include=dev --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
         env:
           NODE_ENV: development
           NPM_CONFIG_PRODUCTION: "false"
@@ -520,11 +578,11 @@ jobs:
         run: |
           if [ ! -f "node_modules/@types/node/index.d.ts" ]; then
             NODE_TYPES_VERSION=$(node -p "require('./package.json').devDependencies['@types/node']")
-            npm install --no-save --no-package-lock --ignore-scripts "@types/node@${NODE_TYPES_VERSION}"
+            pnpm add --no-save "@types/node@${NODE_TYPES_VERSION}"
           fi
 
       - name: Build TypeScript
-        run: npm run build:ts
+        run: pnpm run build:ts
 
       - name: Validate build output
         run: |
@@ -557,6 +615,6 @@ jobs:
           ls -lh Release/
 
       - name: Publish to npm
-        run: npm publish --ignore-scripts
+        run: pnpm publish --no-git-checks --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

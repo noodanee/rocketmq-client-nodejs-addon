@@ -73,10 +73,10 @@ class DefaultMQPushConsumerImpl : public std::enable_shared_from_this<DefaultMQP
   void suspend() override;
   void resume() override;
 
-  MQMessageListener* getMessageListener() const override;
+  std::shared_ptr<MQMessageListener> getMessageListener() const override;
 
-  void registerMessageListener(MessageListenerConcurrently* messageListener) override;
-  void registerMessageListener(MessageListenerOrderly* messageListener) override;
+  void registerMessageListener(std::shared_ptr<MessageListenerConcurrently> messageListener) override;
+  void registerMessageListener(std::shared_ptr<MessageListenerOrderly> messageListener) override;
 
   void subscribe(const std::string& topic, const std::string& subExpression) override;
 
@@ -128,7 +128,7 @@ class DefaultMQPushConsumerImpl : public std::enable_shared_from_this<DefaultMQP
   inline bool consume_orderly() { return consume_orderly_; }
 
   inline MessageListenerType getMessageListenerType() const {
-    if (nullptr != message_listener_) {
+    if (message_listener_) {
       return message_listener_->getMessageListenerType();
     }
     return messageListenerDefaultly;
@@ -150,7 +150,7 @@ class DefaultMQPushConsumerImpl : public std::enable_shared_from_this<DefaultMQP
 
   std::map<std::string, std::string> subscription_;
 
-  MQMessageListener* message_listener_;
+  std::shared_ptr<MQMessageListener> message_listener_;
   std::unique_ptr<ConsumeMsgService> consume_service_;
 
   std::unique_ptr<RebalanceImpl> rebalance_impl_;

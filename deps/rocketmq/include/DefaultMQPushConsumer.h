@@ -39,10 +39,10 @@ class ROCKETMQCLIENT_API DefaultMQPushConsumer : public DefaultMQPushConsumerCon
   void suspend() override;
   void resume() override;
 
-  MQMessageListener* getMessageListener() const override;
+  std::shared_ptr<MQMessageListener> getMessageListener() const override;
 
-  void registerMessageListener(MessageListenerConcurrently* messageListener) override;
-  void registerMessageListener(MessageListenerOrderly* messageListener) override;
+  void registerMessageListener(std::shared_ptr<MessageListenerConcurrently> messageListener) override;
+  void registerMessageListener(std::shared_ptr<MessageListenerOrderly> messageListener) override;
 
   void subscribe(const std::string& topic, const std::string& subExpression) override;
 
@@ -51,9 +51,12 @@ class ROCKETMQCLIENT_API DefaultMQPushConsumer : public DefaultMQPushConsumerCon
 
  public:
   void setRPCHook(RPCHookPtr rpcHook);
+  bool isServiceStateOk() const;
+  void set_shutdown_on_destroy(bool enabled) { shutdown_on_destroy_ = enabled; }
 
  protected:
   std::shared_ptr<MQPushConsumer> push_consumer_impl_;
+  bool shutdown_on_destroy_{true};
 };
 
 }  // namespace rocketmq

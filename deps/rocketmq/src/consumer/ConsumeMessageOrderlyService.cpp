@@ -27,9 +27,9 @@ const uint64_t MAX_TIME_CONSUME_CONTINUOUSLY = 60000;
 
 ConsumeMessageOrderlyService::ConsumeMessageOrderlyService(DefaultMQPushConsumerImpl* consumer,
                                                            int threadCount,
-                                                           MQMessageListener* msgListener)
+                                                           std::shared_ptr<MQMessageListener> msgListener)
     : consumer_(consumer),
-      message_listener_(msgListener),
+      message_listener_(std::move(msgListener)),
       consume_executor_("OderlyConsumeService", threadCount, false),
       scheduled_executor_service_(false) {}
 
@@ -45,6 +45,7 @@ void ConsumeMessageOrderlyService::start() {
 
 void ConsumeMessageOrderlyService::shutdown() {
   stopThreadPool();
+  message_listener_.reset();
   unlockAllMQ();
 }
 

@@ -37,7 +37,12 @@
 namespace __node_rocketmq__ {
 
 static void DeleteAddonData(Napi::Env, AddonData* data) {
-  delete data;
+  if (data != nullptr) {
+    data->producer_constructor.Reset();
+    data->push_consumer_constructor.Reset();
+    data->consumer_ack_constructor.Reset();
+    delete data;
+  }
 }
 
 AddonData* GetAddonData(Napi::Env env) {

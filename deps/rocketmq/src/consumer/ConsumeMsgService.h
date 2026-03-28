@@ -41,7 +41,7 @@ class ConsumeMsgService {
 
 class ConsumeMessageConcurrentlyService : public ConsumeMsgService {
  public:
-  ConsumeMessageConcurrentlyService(DefaultMQPushConsumerImpl*, int threadCount, MQMessageListener* msgListener);
+  ConsumeMessageConcurrentlyService(DefaultMQPushConsumerImpl*, int threadCount, std::shared_ptr<MQMessageListener> msgListener);
   ~ConsumeMessageConcurrentlyService() override;
 
   void start() override;
@@ -63,7 +63,7 @@ class ConsumeMessageConcurrentlyService : public ConsumeMsgService {
 
  private:
   DefaultMQPushConsumerImpl* consumer_;
-  MQMessageListener* message_listener_;
+  std::shared_ptr<MQMessageListener> message_listener_;
 
   thread_pool_executor consume_executor_;
   scheduled_thread_pool_executor scheduled_executor_service_;
@@ -71,7 +71,7 @@ class ConsumeMessageConcurrentlyService : public ConsumeMsgService {
 
 class ConsumeMessageOrderlyService : public ConsumeMsgService {
  public:
-  ConsumeMessageOrderlyService(DefaultMQPushConsumerImpl*, int threadCount, MQMessageListener* msgListener);
+  ConsumeMessageOrderlyService(DefaultMQPushConsumerImpl*, int threadCount, std::shared_ptr<MQMessageListener> msgListener);
   ~ConsumeMessageOrderlyService() override;
 
   void start() override;
@@ -95,7 +95,7 @@ class ConsumeMessageOrderlyService : public ConsumeMsgService {
 
  private:
   DefaultMQPushConsumerImpl* consumer_;
-  MQMessageListener* message_listener_;
+  std::shared_ptr<MQMessageListener> message_listener_;
 
   MessageQueueLock message_queue_lock_;
   thread_pool_executor consume_executor_;

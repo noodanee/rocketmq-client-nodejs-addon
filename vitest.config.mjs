@@ -42,19 +42,15 @@ export default defineConfig({
     },
     
     // Setup files for environment configuration
-    setupFiles: [],
+    setupFiles: ['test/setup.ts'],
     
-    // Disable isolation for better native binding performance
-    isolate: false,
+    // Enable isolation for native binding tests to prevent cross-test interference
+    isolate: true,
     
-    // Pool options for native binding compatibility
+    execArgv: ['--expose-gc'],
     pool: 'forks',
-    
-    // Limit concurrent processes for native binding safety (Vitest 4+ syntax)
-    maxConcurrency: 1,
-    
-    // Retry configuration for flaky native binding tests
-    retry: 1,
+    fileParallelism: false,
+    maxWorkers: 1,
     
     // Reporter configuration
     reporter: ['verbose'],
@@ -76,8 +72,4 @@ export default defineConfig({
     }
   },
   
-  // Define configuration for Node.js compatibility
-  define: {
-    'process.env.NODE_ENV': '"test"'
-  }
 })

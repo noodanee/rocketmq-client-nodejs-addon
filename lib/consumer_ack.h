@@ -29,7 +29,7 @@ struct AddonData;
 class ConsumerAck : public Napi::ObjectWrap<ConsumerAck> {
  public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports, AddonData* addon_data);
-  static Napi::Object NewInstance(Napi::Env env);
+  static Napi::Value NewInstance(Napi::Env env);
 
   ConsumerAck(const Napi::CallbackInfo& info);
 

@@ -36,15 +36,17 @@ Napi::Object ConsumerAck::Init(Napi::Env env, Napi::Object exports, AddonData* a
   return exports;
 }
 
-Napi::Object ConsumerAck::NewInstance(Napi::Env env) {
+Napi::Value ConsumerAck::NewInstance(Napi::Env env) {
   AddonData* addon_data = GetAddonData(env);
 #if defined(ROCKETMQ_COVERAGE) || defined(ROCKETMQ_USE_STUB)
   if (addon_data == nullptr || IsEnvEnabled("ROCKETMQ_STUB_CONSUMER_ACK_NULL_ADDON_DATA")) {
 #else
   if (addon_data == nullptr) {
 #endif
-    Napi::Error::New(env, "ConsumerAck constructor not initialized").ThrowAsJavaScriptException();
-    return Napi::Object();
+    // Log error but don't throw - this could be called from async callback
+    // Return null to signal error to caller, which is safer than an empty object
+    fprintf(stderr, "[RocketMQ] Error: ConsumerAck constructor not initialized\n");
+    return env.Null();
   }
   return addon_data->consumer_ack_constructor.New({});
 }

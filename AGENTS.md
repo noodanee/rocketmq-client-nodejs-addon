@@ -1,84 +1,92 @@
-# AI 编码助手项目指令
+# CLAUDE.md
 
-> **语言要求**: 始终使用中文回复
+## Quick Start
 
----
-
-## 🔴 强制规则 (MUST)
-
-以下规则必须严格遵守，违反任何一条都是不可接受的：
-
-
-### 代码质量检查
-编码任务完成前，**必须按顺序执行以下检查**：
-1. TypeScript 检查必须通过
-2. Lint 检查必须通过
-3. 单元测试必须全部通过
-4. Code Review 必须完成
-
-### 单元测试要求
-- **服务端代码必须编写单测**
-- **单测覆盖率必须达到 100%**
-- **禁止 skip 任何测试用例**
-- **必须使用终端工具实际运行单测** - 不能假装运行
-
----
-
-## 📋 命令参考
-
-### TypeScript 检查
-
-## TIPS
-- ts check
-```shell
-npm run build:ts
+```bash
+npm run build:test      # 构建测试版本 (含 C++ stub，无需真实 RocketMQ)
+npm run vitest          # 跑测试
+npm run validate        # typecheck + lint + test 全量验证
 ```
 
-### Lint 检查
-```shell
-# TypeScript/JavaScript 文件
-npm run lint
+## Architecture
+
+Native addon (C++) ↔ TypeScript wrapper ↔ User code
 
 ```
+lib/                    # C++ N-API 实现 (node-addon-api)
+├── rocketmq.cpp        #   addon 入口，注册 Producer/PushConsumer
+├── producer.{h,cpp}    #   Producer: start/shutdown/send (AsyncWorker + TSFN)
+├── push_consumer.{h,cpp}  # PushConsumer: start/shutdown/subscribe/listener
+├── consumer_ack.{h,cpp}   # ACK 回调对象
+├── common_utils.{h,cpp}   # 共享工具 (参数校验、日志配置)
+└── addon_data.h        #   per-addon instance data
 
-### 单元测试
-```shell
-## 可以有选择执行，对 lib 下的  C++ 文件进行编译
-./build.sh local
-## 然后执行
-npm run test <文件路径>
+src/                    # TypeScript 封装
+├── binding.ts          #   native binary 加载 + 接口类型声明
+├── constants.ts        #   Status enum, LogLevel enum
+├── producer.ts         #   RocketMQProducer class (Promise 队列串行化)
+├── consumer.ts         #   RocketMQPushConsumer class (EventEmitter)
+└── index.ts            #   public API re-export
+
+test/                   # Vitest + C++ stub
+├── mocks/rocketmq/    #   C++ stub 实现 (替代真实 SDK)
+├── helpers/            #   测试辅助函数
+└── *.test.ts           #   各模块测试
+
+deps/rocketmq/          # 真实 RocketMQ C++ SDK (仅生产构建)
 ```
 
+## Build Commands
 
-## ⚡ 执行流程
-
-完成编码任务的标准流程：
-
-```
-1. 理解需求
-   ↓
-2. 编写/修改代码
-   ↓
-3. 运行 TypeScript 检查
-   ↓
-4. 运行 Lint 检查
-   ↓
-5. 编写单测 (如需要)
-   ↓
-6. 运行单测并等待完成
-   ↓
-7. Code Review
-   ↓
-8. 如有问题，返回步骤 2 修复
-   ↓
-9. 完成
+```bash
+npm run build           # 完整构建 (native + TS)
+npm run build:native    # 仅 native (真实 SDK)
+npm run build:test      # native stub + TS (测试用，快)
+npm run build:ts        # 仅 TypeScript → dist/
 ```
 
----
+## Test Commands
 
-## ⏳ 单测执行注意事项
+```bash
+npm run test            # build:test + vitest
+npm run vitest          # 仅跑测试 (需先 build:test)
+npm run test:coverage   # 带覆盖率 (阈值: lines/functions 80%, branches 70%)
+```
 
-- 单测启动和执行需要较长时间，**耐心等待**
-- 如支持后台进程读取，可使用 Background process 异步等待
-- **绝对禁止使用 sleep 命令等待**
+## Verify (CI 等价)
 
+```bash
+npm run validate        # typecheck && lint && test
+```
+
+## Key Conventions
+
+### C++ 层
+
+- **Lifecycle 是一次性的**：Producer/Consumer start 失败或 shutdown 后不可重新 start
+- **状态机**：`LifecycleState` enum + `std::atomic` + `TryTransitionState()` CAS
+- **异步模式**：
+  - start/shutdown → `Napi::AsyncWorker` (在 libuv 线程池执行)
+  - send callback → `napi_threadsafe_function` (SDK 线程回调 → JS 主线程)
+- **参数校验**：入口处用 `utils::ValidateCallback` / `ValidateStringArguments`
+- **命名空间**：所有代码在 `__node_rocketmq__` 内
+- **条件编译**：`ROCKETMQ_USE_STUB` 启用 stub；`ROCKETMQ_COVERAGE` 启用覆盖率
+
+### TypeScript 层
+
+- **Promise/Callback 双模式**：所有异步方法同时支持两种调用风格
+- **串行化**：start/shutdown 通过 `operationQueue` Promise 链保证串行
+- **状态检查**：send 前检查 `this.status === Status.STARTED`
+- **优雅关闭**：shutdown 时 drain pending sends，reject 所有未完成的 send
+
+### 测试
+
+- 测试使用 C++ stub（`test/mocks/rocketmq/`），不依赖真实 broker
+- `pool: 'forks'` + `fileParallelism: false` 确保 native addon 隔离
+- `--expose-gc` 用于 GC 相关测试
+
+## Breaking Changes (v1.1.2 → v2.0.0)
+
+- Producer/Consumer 变为一次性对象：start 失败或 shutdown 后不可重新 start
+- shutdown() 失败后状态重置为 STOPPED（不再保留 STOPPING）
+- 真实 SDK 不支持 start 失败后重试，JS 封装已对齐此行为

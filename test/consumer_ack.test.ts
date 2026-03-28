@@ -1,15 +1,7 @@
 'use strict';
 
 import { describe, test, expect, afterEach } from 'vitest';
-import * as path from 'path';
 
-import { ensureBindingBinary } from './helpers/binding';
-
-const rootDir = path.join(__dirname, '..');
-process.env.NODE_BINDINGS_COMPILED_DIR = 'build';
-ensureBindingBinary(rootDir);
-
-// Import from compiled dist for native binding compatibility
 import { RocketMQPushConsumer } from '../src/consumer';
 import { Status } from '../src/constants';
 
@@ -184,6 +176,7 @@ describe('ConsumerAck tests', () => {
     let consumer: any;
     try {
       consumer = new RocketMQPushConsumer('test-group', {});
+      consumer.on('error', () => {});
       consumer.subscribe('test-topic', '*');
 
       const messagePromise = new Promise((resolve) => {
@@ -209,6 +202,7 @@ describe('ConsumerAck tests', () => {
     let consumer: any;
     try {
       consumer = new RocketMQPushConsumer('test-group', {});
+      consumer.on('error', () => {});
       consumer.subscribe('test-topic', '*');
 
       const messagePromise = new Promise((resolve) => {
@@ -376,6 +370,7 @@ describe('ConsumerAck tests', () => {
     let consumer: any;
     try {
       consumer = new RocketMQPushConsumer('test-group', {});
+      consumer.on('error', () => {});
       consumer.subscribe('test-topic', '*');
 
       const messagePromise = new Promise((resolve) => {

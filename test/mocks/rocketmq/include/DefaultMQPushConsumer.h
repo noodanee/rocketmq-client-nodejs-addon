@@ -1,6 +1,7 @@
 #ifndef ROCKETMQ_STUB_DEFAULT_MQ_PUSH_CONSUMER_H
 #define ROCKETMQ_STUB_DEFAULT_MQ_PUSH_CONSUMER_H
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -25,6 +26,8 @@ class DefaultMQPushConsumer {
   void shutdown();
   void subscribe(const std::string& topic, const std::string& expression);
   void registerMessageListener(MessageListenerConcurrently* listener);
+  void registerMessageListener(std::shared_ptr<MessageListenerConcurrently> listener);
+  void set_shutdown_on_destroy(bool enabled) { (void)enabled; }
 
  private:
   std::string group_name_;
@@ -35,6 +38,8 @@ class DefaultMQPushConsumer {
   int max_reconsume_times_;
   std::shared_ptr<ClientRPCHook> rpc_hook_;
   MessageListenerConcurrently* listener_;
+  std::shared_ptr<MessageListenerConcurrently> listener_holder_;
+  std::atomic<bool> shutdown_{false};
 };
 
 }

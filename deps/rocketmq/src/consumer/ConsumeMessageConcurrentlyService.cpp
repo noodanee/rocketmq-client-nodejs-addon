@@ -25,9 +25,9 @@ namespace rocketmq {
 
 ConsumeMessageConcurrentlyService::ConsumeMessageConcurrentlyService(DefaultMQPushConsumerImpl* consumer,
                                                                      int threadCount,
-                                                                     MQMessageListener* msgListener)
+                                                                     std::shared_ptr<MQMessageListener> msgListener)
     : consumer_(consumer),
-      message_listener_(msgListener),
+      message_listener_(std::move(msgListener)),
       consume_executor_("ConsumeMessageThread", threadCount, false),
       scheduled_executor_service_("ConsumeMessageScheduledThread", false) {}
 
@@ -42,6 +42,7 @@ void ConsumeMessageConcurrentlyService::start() {
 void ConsumeMessageConcurrentlyService::shutdown() {
   scheduled_executor_service_.shutdown();
   consume_executor_.shutdown();
+  message_listener_.reset();
 }
 
 void ConsumeMessageConcurrentlyService::submitConsumeRequest(std::vector<MessageExtPtr>& msgs,

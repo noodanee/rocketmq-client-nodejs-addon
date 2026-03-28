@@ -17,6 +17,8 @@
 #ifndef ROCKETMQ_MQPUSHCONSUMER_H_
 #define ROCKETMQ_MQPUSHCONSUMER_H_
 
+#include <memory>
+
 #include "MQMessageExt.h"
 #include "MQMessageListener.h"
 
@@ -33,10 +35,10 @@ class ROCKETMQCLIENT_API MQPushConsumer {
   virtual void suspend() = 0;
   virtual void resume() = 0;
 
-  virtual MQMessageListener* getMessageListener() const = 0;
+  virtual std::shared_ptr<MQMessageListener> getMessageListener() const = 0;
 
-  virtual void registerMessageListener(MessageListenerConcurrently* messageListener) = 0;
-  virtual void registerMessageListener(MessageListenerOrderly* messageListener) = 0;
+  virtual void registerMessageListener(std::shared_ptr<MessageListenerConcurrently> messageListener) = 0;
+  virtual void registerMessageListener(std::shared_ptr<MessageListenerOrderly> messageListener) = 0;
 
   virtual void subscribe(const std::string& topic, const std::string& subExpression) = 0;
   // virtual void subscribe(const std::string& topic, MessageSelector* selector) = 0;

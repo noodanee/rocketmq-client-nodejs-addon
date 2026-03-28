@@ -6,7 +6,11 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "Release"
+    "Release/linux-x86_64-gnu-rocketmq.node",
+    "Release/linux-aarch64-gnu-rocketmq.node",
+    "Release/linux-x86_64-musl-rocketmq.node",
+    "Release/linux-aarch64-musl-rocketmq.node",
+    "Release/darwin-universal-rocketmq.node"
   ],
   "os": [
     "darwin",
@@ -23,41 +27,39 @@
     ]
   },
   "scripts": {
-    "build": "npm run build:native && npm run build:ts",
-    "build:native": "cmake-js build",
+    "build": "pnpm run build:native && pnpm run build:ts",
+    "build:native": "cmake-js rebuild",
     "build:native:test": "cmake-js rebuild --CDROCKETMQ_USE_STUB=ON --CDROCKETMQ_ENABLE_COVERAGE=ON",
-    "build:ts": "tsc",
-    "build:dev": "npm run build:native && npm run build:ts",
-    "build:test": "npm run build:native:test && npm run build:ts",
+    "build:ts": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build:dev": "pnpm run build:native && pnpm run build:ts",
+    "build:test": "pnpm run build:native:test && pnpm run build:ts",
     "build:coverage": "cmake-js rebuild",
-    "prepublishOnly": "npm run build",
-    "vitest": "vitest run --reporter=verbose",
-    "vitest:coverage": "vitest run --coverage --reporter=verbose",
-    "test": "npm run build:test && npm run vitest",
-    "test:dryrun": "npm run build:ts && npm run vitest",
-    "test:dev": "npm run build:dev && node --expose-gc --max-old-space-size=4096 vitest",
-    "test:coverage": "npm run build:test && npm run vitest:coverage",
-    "test:watch": "npm run build:ts && vitest --watch",
+    "prepublishOnly": "node -e \"const fs=require('fs'),targets=['linux-x86_64-gnu','linux-aarch64-gnu','linux-x86_64-musl','linux-aarch64-musl','darwin-universal'],missing=targets.filter(t=>!fs.existsSync('Release/'+t+'-rocketmq.node'));if(missing.length){console.error('ERROR: Missing Release binaries: '+missing.map(t=>t+'-rocketmq.node').join(', '));console.error('Build via CI or provide all target binaries before publishing.');process.exit(1)}\" && pnpm run build:native && pnpm run build:ts",
+    "vitest": "pnpm run build:test && vitest run --reporter=verbose",
+    "vitest:coverage": "pnpm run build:test && vitest run --coverage --reporter=verbose",
+    "test": "pnpm run vitest",
+    "test:dev": "pnpm run build:test && node --expose-gc --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --reporter=verbose",
+    "test:coverage": "pnpm run vitest:coverage",
+    "test:watch": "pnpm run build:test && node --expose-gc --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs --watch",
+    "typecheck": "tsc --noEmit",
     "clean:ts": "tsc -b --clean",
-    "lint": "eslint src/**/*.ts example/**/*.ts --fix",
-    "format": "prettier --write src/**/*.ts example/**/*.ts",
-    "validate": "npm run lint && npm run test:dryrun"
-  },
-  "dependencies": {
-    "bindings": "^1.5.0"
+    "lint": "eslint src/**/*.ts example/**/*.ts test/**/*.ts --fix",
+    "lint:check": "eslint src/**/*.ts example/**/*.ts test/**/*.ts",
+    "format": "prettier --write src/**/*.ts example/**/*.ts test/**/*.ts",
+    "validate": "pnpm run typecheck && pnpm run lint && pnpm run test"
   },
   "devDependencies": {
-    "@types/bindings": "^1.5.5",
-    "@types/node": "^22.10.5",
-    "@vitest/coverage-v8": "^4.0.18",
-    "cmake-js": "^7.4.0",
-    "node-addon-api": "^8.5.0",
-    "typescript": "^5.7.2",
-    "vitest": "^4.0.18",
-    "eslint": "^9.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0",
-    "prettier": "^3.0.0",
-    "ts-node": "^10.9.0"
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.1",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "cmake-js": "^8.0.0",
+    "eslint": "^10.4.0",
+    "node-addon-api": "^8.8.0",
+    "prettier": "^3.8.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   }
 }

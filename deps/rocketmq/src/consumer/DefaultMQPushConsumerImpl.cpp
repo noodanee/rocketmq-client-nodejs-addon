@@ -156,13 +156,18 @@ DefaultMQPushConsumerImpl::DefaultMQPushConsumerImpl(DefaultMQPushConsumerConfig
       start_time_(UtilAll::currentTimeMillis()),
       pause_(false),
       consume_orderly_(false),
-      message_listener_(nullptr),
+      message_listener_(),
       consume_service_(nullptr),
       rebalance_impl_(new RebalancePushImpl(this)),
       pull_api_wrapper_(nullptr),
       offset_store_(nullptr) {}
 
-DefaultMQPushConsumerImpl::~DefaultMQPushConsumerImpl() = default;
+DefaultMQPushConsumerImpl::~DefaultMQPushConsumerImpl() {
+  try {
+    shutdown();
+  } catch (...) {
+  }
+}
 
 void DefaultMQPushConsumerImpl::start() {
 #ifndef WIN32
@@ -242,7 +247,13 @@ void DefaultMQPushConsumerImpl::start() {
                           -1);
       }
 
-      client_instance_->start();
+      try {
+        client_instance_->start();
+      } catch (...) {
+        client_instance_->unregisterConsumer(client_config_->group_name());
+        consume_service_->shutdown();
+        throw;
+      }
 
       LOG_INFO_NEW("the consumer [{}] start OK", client_config_->group_name());
       service_state_ = RUNNING;
@@ -332,6 +343,7 @@ void DefaultMQPushConsumerImpl::shutdown() {
   switch (service_state_) {
     case RUNNING: {
       consume_service_->shutdown();
+      message_listener_.reset();
       persistConsumerOffset();
       client_instance_->unregisterConsumer(client_config_->group_name());
       client_instance_->shutdown();
@@ -359,20 +371,16 @@ void DefaultMQPushConsumerImpl::resume() {
   LOG_INFO_NEW("resume this consumer, {}", client_config_->group_name());
 }
 
-MQMessageListener* DefaultMQPushConsumerImpl::getMessageListener() const {
+std::shared_ptr<MQMessageListener> DefaultMQPushConsumerImpl::getMessageListener() const {
   return message_listener_;
 }
 
-void DefaultMQPushConsumerImpl::registerMessageListener(MessageListenerConcurrently* message_listener) {
-  if (nullptr != message_listener) {
-    message_listener_ = message_listener;
-  }
+void DefaultMQPushConsumerImpl::registerMessageListener(std::shared_ptr<MessageListenerConcurrently> message_listener) {
+  message_listener_ = std::move(message_listener);
 }
 
-void DefaultMQPushConsumerImpl::registerMessageListener(MessageListenerOrderly* message_listener) {
-  if (nullptr != message_listener) {
-    message_listener_ = message_listener;
-  }
+void DefaultMQPushConsumerImpl::registerMessageListener(std::shared_ptr<MessageListenerOrderly> message_listener) {
+  message_listener_ = std::move(message_listener);
 }
 
 void DefaultMQPushConsumerImpl::subscribe(const std::string& topic, const std::string& subExpression) {

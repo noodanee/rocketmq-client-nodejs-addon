@@ -220,3 +220,11 @@ coverage.*.html
 dist/
 *.tsbuildinfo
 *.test.js.map
+test/*.js
+coverage_output.txt
+
+# Claude Code local session/config
+.claude/
+
+# pnpm
+pnpm-debug.log

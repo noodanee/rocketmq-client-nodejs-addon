@@ -2,6 +2,12 @@ import binding, { NativeProducer } from './binding';
 import { LogLevel, Status } from './constants';
 
 const START_OR_SHUTDOWN = Symbol('RocketMQProducer#startOrShutdown');
+const DRAIN_PENDING_SENDS = Symbol('RocketMQProducer#drainPendingSends');
+
+interface PendingSendSettler {
+  reject: (err: Error) => void;
+  settled: boolean;
+}
 
 export enum SendResultStatus {
   OK = 0,
@@ -46,11 +52,16 @@ type Callback<T = void> = (err?: Error | null, result?: T) => void;
 
 let producerRef = 0;
 let timer: NodeJS.Timeout | undefined;
+const keepAlive = (): void => {};
 
 export class RocketMQProducer {
   public core: NativeProducer;
   status: Status;
   private operationQueue: Promise<void>;
+  private pendingOperations = 0;
+  private pendingSendSettlers = new Set<PendingSendSettler>();
+  private shutdownCompleted = false;
+  private pendingShutdownPromise: Promise<void> | null = null;
 
   /**
    * RocketMQ Producer constructor
@@ -60,7 +71,7 @@ export class RocketMQProducer {
    */
   constructor(groupId: string, instanceName?: string | ProducerOptions, options?: ProducerOptions) {
     let actualInstanceName: string | null = null;
-    let actualOptions: ProducerOptions = {};
+    let actualOptions: ProducerOptions;
 
     if (typeof instanceName !== 'string') {
       actualOptions = instanceName || {};
@@ -70,7 +81,7 @@ export class RocketMQProducer {
     }
 
     if (actualOptions.logLevel && typeof actualOptions.logLevel === 'string') {
-      actualOptions.logLevel = LogLevel[actualOptions.logLevel.toUpperCase() as keyof typeof LogLevel] || LogLevel.INFO;
+      actualOptions.logLevel = LogLevel[actualOptions.logLevel.toUpperCase() as keyof typeof LogLevel] ?? LogLevel.INFO;
     }
 
     this.core = new binding.Producer(groupId, actualInstanceName, actualOptions);
@@ -108,8 +119,10 @@ export class RocketMQProducer {
   private [START_OR_SHUTDOWN](method: 'start' | 'shutdown', callback: Callback): void;
   private [START_OR_SHUTDOWN](method: 'start' | 'shutdown', callback?: Callback): void | Promise<void> {
     let promise: Promise<void> | undefined;
-    let resolve: (value?: void) => void;
-    let reject: (err: Error) => void;
+    let resolve!: (value?: void) => void;
+    let reject!: (err: Error) => void;
+    let initiated = false;
+    const queueBusy = this.pendingOperations > 0;
 
     if (!callback) {
       promise = new Promise<void>((_resolve, _reject) => {
@@ -118,85 +131,170 @@ export class RocketMQProducer {
       });
     } else {
       resolve = () => callback(null);
-      reject = callback;
+      reject = (err: Error) => { queueMicrotask(() => callback(err)); };
+    }
+
+    if (!queueBusy) {
+      if (method === 'start') {
+        if (this.shutdownCompleted) {
+          reject(new Error('Producer cannot be restarted after shutdown'));
+          return promise;
+        }
+        if (this.status === Status.STARTED) {
+          reject(new Error('Producer is already started'));
+          return promise;
+        }
+        if (this.status === Status.STARTING) {
+          reject(new Error('Producer is already starting'));
+          return promise;
+        }
+        if (this.status === Status.STOPPING) {
+          reject(new Error('Producer is stopping, please wait for shutdown to complete'));
+          return promise;
+        }
+        if (this.status === Status.STOPPED) {
+          this.status = Status.STARTING;
+          initiated = true;
+        }
+      } else {
+        if (this.status === Status.STOPPED) {
+          reject(new Error('Producer is already stopped'));
+          return promise;
+        }
+        if (this.status === Status.STARTING) {
+          reject(new Error('Producer is starting, please wait for start to complete'));
+          return promise;
+        }
+        if (this.status === Status.STOPPING) {
+          initiated = true;
+        }
+        if (this.status === Status.STARTED) {
+          this.status = Status.STOPPING;
+          initiated = true;
+        }
+      }
     }
 
     // 将操作加入队列，确保串行执行
+    this.pendingOperations++;
     this.operationQueue = this.operationQueue
+      .catch((err) => {
+        try {
+          process.emitWarning(String(err), 'RocketMQ');
+        } catch (_) {
+          // ignore
+        }
+      })
       .then(() => {
         return new Promise<void>((queueResolve) => {
-          // 在队列内部进行状态检查和更新，确保原子性
+          const finalizeQueue = (): void => {
+            this.pendingOperations = Math.max(0, this.pendingOperations - 1);
+            queueResolve();
+          };
+          let statusError: Error | undefined;
           if (method === 'start') {
-            if (this.status === Status.STARTING) {
-              const err = new Error('Producer is already starting');
-              queueResolve();
-              return reject(err);
+            if (this.shutdownCompleted) {
+              statusError = new Error('Producer cannot be restarted after shutdown');
+            } else if (this.status === Status.STARTED) {
+              statusError = new Error('Producer is already started');
+            } else if (this.status === Status.STOPPING) {
+              statusError = new Error('Producer is stopping, please wait for shutdown to complete');
+            } else {
+              if (this.status === Status.STOPPED) {
+                this.status = Status.STARTING;
+                initiated = true;
+              }
             }
-            if (this.status === Status.STARTED) {
-              const err = new Error('Producer is already started');
-              queueResolve();
-              return reject(err);
-            }
-            if (this.status === Status.STOPPING) {
-              const err = new Error('Producer is stopping, please wait for shutdown to complete');
-              queueResolve();
-              return reject(err);
-            }
-            // 设置中间状态
-            this.status = Status.STARTING;
-          } else { // shutdown
+          } else {
             if (this.status === Status.STOPPED) {
-              const err = new Error('Producer is already stopped');
-              queueResolve();
-              return reject(err);
+              statusError = new Error('Producer is already stopped');
+            } else if (this.status === Status.STOPPING && !initiated) {
+              initiated = true;
+            } else if (this.status === Status.STARTING) {
+              statusError = new Error('Producer is starting, please wait for start to complete');
+            } else {
+              if (this.status === Status.STARTED) {
+                this.status = Status.STOPPING;
+                initiated = true;
+              }
             }
-            if (this.status === Status.STOPPING) {
-              const err = new Error('Producer is already stopping');
-              queueResolve();
-              return reject(err);
-            }
-            if (this.status === Status.STARTING) {
-              const err = new Error('Producer is starting, please wait for start to complete');
-              queueResolve();
-              return reject(err);
-            }
-            // 设置中间状态
-            this.status = Status.STOPPING;
           }
 
-          this.core[method]((err) => {
-            if (err) {
-              // 回滚状态
-              if (method === 'start') {
-                this.status = Status.STOPPED;
-              } else {
-                this.status = Status.STARTED;
-              }
-              queueResolve();
-              return reject(err);
-            }
+          if (statusError) {
+            finalizeQueue();
+            reject(statusError);
+            return;
+          }
 
+          let settled = false;
+
+          const finishError = (error: Error): void => {
+            if (settled) return;
+            settled = true;
             if (method === 'start') {
-              this.status = Status.STARTED;
-              if (!producerRef) timer = setInterval(() => {}, 24 * 3600 * 1000);
-              producerRef++;
+              this.status = Status.STOPPED;
+              this.shutdownCompleted = true;
             } else {
               this.status = Status.STOPPED;
+              this.shutdownCompleted = true;
               producerRef--;
               if (!producerRef && timer) {
                 clearInterval(timer);
                 timer = undefined;
               }
+              this[DRAIN_PENDING_SENDS]();
             }
+            finalizeQueue();
+            reject(error);
+          };
 
-            queueResolve();
-            resolve();
-          });
+          const finishSuccess = (): void => {
+            if (settled) return;
+            settled = true;
+            try {
+              if (method === 'start') {
+                this.status = Status.STARTED;
+                if (!producerRef) {
+                  keepAlive();
+                  timer = setInterval(keepAlive, 24 * 3600 * 1000);
+                }
+                producerRef++;
+              } else {
+                this.status = Status.STOPPED;
+                this.shutdownCompleted = true;
+                producerRef--;
+                if (!producerRef && timer) {
+                  clearInterval(timer);
+                  timer = undefined;
+                }
+              }
+            } finally {
+              if (method === 'shutdown') {
+                this[DRAIN_PENDING_SENDS]();
+              }
+              finalizeQueue();
+              resolve();
+            }
+          };
+
+          try {
+            this.core[method]((err) => {
+              if (err) {
+                finishError(err);
+                return;
+              }
+              finishSuccess();
+            });
+          } catch (err) {
+            finishError(err instanceof Error ? err : new Error(String(err)));
+          }
         });
       })
       .catch((err) => {
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('[RocketMQ] Operation queue error:', err);
+        try {
+          process.emitWarning(String(err), 'RocketMQ');
+        } catch (_) {
+          // ignore
         }
       }); // 防止队列中断
 
@@ -222,7 +320,17 @@ export class RocketMQProducer {
   shutdown(): Promise<void>;
   shutdown(callback: Callback): void;
   shutdown(callback?: Callback): void | Promise<void> {
-    return this[START_OR_SHUTDOWN]('shutdown', callback as any);
+    if (!callback) {
+      if (!this.pendingShutdownPromise) {
+        this.pendingShutdownPromise = this[START_OR_SHUTDOWN]('shutdown') as Promise<void>;
+        this.pendingShutdownPromise.then(
+          () => { this.pendingShutdownPromise = null; },
+          () => { this.pendingShutdownPromise = null; }
+        );
+      }
+      return this.pendingShutdownPromise;
+    }
+    return this[START_OR_SHUTDOWN]('shutdown', callback);
   }
 
   /**
@@ -259,24 +367,26 @@ export class RocketMQProducer {
 
     // 检查 Producer 状态
     if (this.status !== Status.STARTED) {
-      const statusName =
-        this.status === Status.STOPPED
-          ? 'STOPPED'
-          : this.status === Status.STARTING
-            ? 'STARTING'
-            : 'STOPPING';
-      const err = new Error(`Producer must be started before sending messages. Current status: ${statusName}`);
-      return actualCallback ? actualCallback(err) : Promise.reject(err);
+      const err = new Error(`Producer must be started before sending messages. Current status: ${this.getStatusName()}`);
+      if (actualCallback) {
+        queueMicrotask(() => actualCallback(err));
+        return;
+      }
+      return Promise.reject(err);
     }
 
     if (!body.length) {
       const ret: SendResult = { status: -1, statusStr: 'EMPTY_BODY', msgId: '', offset: 0 };
-      return actualCallback ? actualCallback(null, ret) : Promise.resolve(ret);
+      if (actualCallback) {
+        queueMicrotask(() => actualCallback(null, ret));
+        return;
+      }
+      return Promise.resolve(ret);
     }
 
     let promise: Promise<SendResult> | undefined;
-    let resolve: (value: SendResult) => void;
-    let reject: (err: Error) => void;
+    let resolve!: (value: SendResult) => void;
+    let reject!: (err: Error) => void;
 
     if (!actualCallback) {
       promise = new Promise<SendResult>((_resolve, _reject) => {
@@ -285,27 +395,62 @@ export class RocketMQProducer {
       });
     } else {
       resolve = (result: SendResult) => actualCallback(null, result);
-      reject = actualCallback;
+      reject = (err: Error) => { queueMicrotask(() => actualCallback(err)); };
     }
 
-    this.core.send(topic, body, actualOptions, (err, status, msgId, offset) => {
-      if (err) {
-        return reject(err);
-      }
+    const settler: PendingSendSettler = { reject, settled: false };
+    this.pendingSendSettlers.add(settler);
 
-      const ret: SendResult = {
-        status: status || 0,
-        statusStr: SEND_RESULT_STATUS_STR[status || 0] || 'UNKNOWN',
-        msgId: msgId || '',
-        offset: offset || 0
-      };
-      resolve(ret);
-    });
+    try {
+      this.core.send(topic, body, actualOptions, (err, status, msgId, offset) => {
+        if (settler.settled) return;
+        settler.settled = true;
+        this.pendingSendSettlers.delete(settler);
+
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        const ret: SendResult = {
+          status: status || 0,
+          statusStr: SEND_RESULT_STATUS_STR[status || 0] || 'UNKNOWN',
+          msgId: msgId || '',
+          offset: offset || 0
+        };
+        resolve(ret);
+      });
+    } catch (err) {
+      settler.settled = true;
+      this.pendingSendSettlers.delete(settler);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
 
     return promise;
   }
 
   static SEND_RESULT = SendResultStatus;
+
+  private [DRAIN_PENDING_SENDS](): void {
+    const cancelErr = new Error('Send cancelled: producer shutdown timeout');
+    const callbackErrors: Error[] = [];
+    for (const settler of this.pendingSendSettlers) {
+      if (!settler.settled) {
+        settler.settled = true;
+        try {
+          settler.reject(cancelErr);
+        } catch (e) {
+          callbackErrors.push(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+    }
+    this.pendingSendSettlers.clear();
+    if (callbackErrors.length) {
+      for (const e of callbackErrors) {
+        queueMicrotask(() => { throw e; });
+      }
+    }
+  }
 }
 
 export default RocketMQProducer;

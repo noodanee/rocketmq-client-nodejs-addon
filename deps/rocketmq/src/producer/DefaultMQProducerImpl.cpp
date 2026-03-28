@@ -98,7 +98,12 @@ DefaultMQProducerImpl::DefaultMQProducerImpl(DefaultMQProducerConfigPtr config, 
       async_send_executor_(nullptr),
       check_transaction_executor_(nullptr) {}
 
-DefaultMQProducerImpl::~DefaultMQProducerImpl() = default;
+DefaultMQProducerImpl::~DefaultMQProducerImpl() {
+  try {
+    shutdown();
+  } catch (...) {
+  }
+}
 
 void DefaultMQProducerImpl::start() {
 #ifndef WIN32
@@ -135,9 +140,15 @@ void DefaultMQProducerImpl::start() {
             "AsyncSendThread", dynamic_cast<DefaultMQProducerConfig*>(client_config_.get())->async_send_thread_nums(),
             false));
       }
-      async_send_executor_->startup();
 
-      client_instance_->start();
+      try {
+        async_send_executor_->startup();
+        client_instance_->start();
+      } catch (...) {
+        async_send_executor_->shutdown();
+        client_instance_->unregisterProducer(client_config_->group_name());
+        throw;
+      }
 
       LOG_INFO_NEW("the producer [{}] start OK.", client_config_->group_name());
       service_state_ = RUNNING;

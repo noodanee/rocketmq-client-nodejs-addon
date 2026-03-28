@@ -39,7 +39,14 @@ DefaultMQPushConsumer::DefaultMQPushConsumer(const std::string& groupname, RPCHo
   push_consumer_impl_ = DefaultMQPushConsumerImpl::create(real_config(), rpcHook);
 }
 
-DefaultMQPushConsumer::~DefaultMQPushConsumer() = default;
+DefaultMQPushConsumer::~DefaultMQPushConsumer() {
+  if (shutdown_on_destroy_) {
+    try {
+      shutdown();
+    } catch (...) {
+    }
+  }
+}
 
 void DefaultMQPushConsumer::start() {
   push_consumer_impl_->start();
@@ -57,16 +64,16 @@ void DefaultMQPushConsumer::resume() {
   push_consumer_impl_->resume();
 }
 
-MQMessageListener* DefaultMQPushConsumer::getMessageListener() const {
+std::shared_ptr<MQMessageListener> DefaultMQPushConsumer::getMessageListener() const {
   return push_consumer_impl_->getMessageListener();
 }
 
-void DefaultMQPushConsumer::registerMessageListener(MessageListenerConcurrently* messageListener) {
-  push_consumer_impl_->registerMessageListener(messageListener);
+void DefaultMQPushConsumer::registerMessageListener(std::shared_ptr<MessageListenerConcurrently> messageListener) {
+  push_consumer_impl_->registerMessageListener(std::move(messageListener));
 }
 
-void DefaultMQPushConsumer::registerMessageListener(MessageListenerOrderly* messageListener) {
-  push_consumer_impl_->registerMessageListener(messageListener);
+void DefaultMQPushConsumer::registerMessageListener(std::shared_ptr<MessageListenerOrderly> messageListener) {
+  push_consumer_impl_->registerMessageListener(std::move(messageListener));
 }
 
 void DefaultMQPushConsumer::subscribe(const std::string& topic, const std::string& subExpression) {
@@ -83,6 +90,10 @@ bool DefaultMQPushConsumer::sendMessageBack(MessageExtPtr msg, int delayLevel, c
 
 void DefaultMQPushConsumer::setRPCHook(RPCHookPtr rpcHook) {
   dynamic_cast<DefaultMQPushConsumerImpl*>(push_consumer_impl_.get())->setRPCHook(rpcHook);
+}
+
+bool DefaultMQPushConsumer::isServiceStateOk() const {
+  return dynamic_cast<DefaultMQPushConsumerImpl*>(push_consumer_impl_.get())->isServiceStateOk();
 }
 
 }  // namespace rocketmq

@@ -2,7 +2,10 @@
 #define ROCKETMQ_STUB_DEFAULT_MQ_PRODUCER_H
 
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "ClientRPCHook.h"
 #include "MQMessage.h"
@@ -24,7 +27,7 @@ class DefaultMQProducer {
 
   void start();
   void shutdown();
-  void send(MQMessage& message, AutoDeleteSendCallback* callback);
+  void send(MQMessage& message, SendCallback* callback);
 
  private:
   std::string group_name_;
@@ -34,6 +37,9 @@ class DefaultMQProducer {
   int compress_level_;
   int send_msg_timeout_;
   std::shared_ptr<ClientRPCHook> rpc_hook_;
+  std::mutex threads_mutex_;
+  std::vector<std::thread> threads_;
+  bool shutdown_{false};
 };
 
 }

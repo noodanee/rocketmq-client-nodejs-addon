@@ -43,10 +43,57 @@ namespace config {
 namespace utils {
   // 设置日志配置的通用函数
   void SetLoggerOptions(const Napi::Object& options);
-  
+
   // 参数验证辅助函数
   bool ValidateStringArguments(const Napi::CallbackInfo& info, size_t count, const char* error_msg);
   bool ValidateCallback(const Napi::CallbackInfo& info, size_t index, const char* error_msg);
+
+  inline void ThrowViaMicrotask(Napi::Env env, napi_value error) {
+    napi_ref err_ref = nullptr;
+    napi_status status = napi_create_reference(env, error, 1, &err_ref);
+    if (status != napi_ok) {
+      return;
+    }
+
+    napi_value global = nullptr;
+    status = napi_get_global(env, &global);
+    if (status != napi_ok) {
+      napi_delete_reference(env, err_ref);
+      return;
+    }
+
+    napi_value queue_microtask = nullptr;
+    status = napi_get_named_property(env, global, "queueMicrotask", &queue_microtask);
+    if (status != napi_ok) {
+      napi_delete_reference(env, err_ref);
+      return;
+    }
+
+    napi_value throw_fn = nullptr;
+    status = napi_create_function(env, nullptr, 0,
+        [](napi_env env, napi_callback_info info) -> napi_value {
+          void* data;
+          napi_get_cb_info(env, info, nullptr, nullptr, nullptr, &data);
+          auto ref = static_cast<napi_ref>(data);
+          napi_value err = nullptr;
+          napi_status s = napi_get_reference_value(env, ref, &err);
+          napi_delete_reference(env, ref);
+          if (s == napi_ok && err != nullptr) {
+            napi_throw(env, err);
+          }
+          return nullptr;
+        },
+        err_ref, &throw_fn);
+    if (status != napi_ok) {
+      napi_delete_reference(env, err_ref);
+      return;
+    }
+
+    status = napi_call_function(env, global, queue_microtask, 1, &throw_fn, nullptr);
+    if (status != napi_ok) {
+      napi_delete_reference(env, err_ref);
+    }
+  }
 }
 
 }  // namespace __node_rocketmq__
